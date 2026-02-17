@@ -30,3 +30,15 @@ jobs:
             NotifMover.app.tar.gz
             NotifMover.app.tar.gz.sha256
           generate_release_notes: true
+
+      - name: Update cask
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          SHA=$(awk '{print $1}' NotifMover.app.tar.gz.sha256)
+          sed -i '' "s/version \".*\"/version \"$VERSION\"/" Casks/notif-mover.rb
+          sed -i '' "s/sha256 \".*\"/sha256 \"$SHA\"/" Casks/notif-mover.rb
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add Casks/notif-mover.rb
+          git diff --cached --quiet || git commit -m "Update cask to v$VERSION"
+          git push origin HEAD:main

@@ -15,7 +15,7 @@ On macOS 26, notifications live inside a full-screen `AXSystemDialog` window. In
 ### Homebrew
 
 ```
-brew tap jamhed/notif-mover
+brew tap jamhed/notif-mover https://github.com/jamhed/notif-mover
 brew install --cask notif-mover
 ```
 
