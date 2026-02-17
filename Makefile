@@ -6,7 +6,10 @@ all: build
 build:
 	@mkdir -p $(BUNDLE_DIR)/Contents/MacOS
 	@cp Info.plist $(BUNDLE_DIR)/Contents/Info.plist
-	swiftc notif-mover.swift -o $(BUNDLE_DIR)/Contents/MacOS/NotifMover -O -target arm64-apple-macos14.0
+	swiftc notif-mover.swift -o $(BUNDLE_DIR)/Contents/MacOS/NotifMover-x86_64 -O -target x86_64-apple-macos14.0
+	swiftc notif-mover.swift -o $(BUNDLE_DIR)/Contents/MacOS/NotifMover-arm64 -O -target arm64-apple-macos14.0
+	lipo -create -output $(BUNDLE_DIR)/Contents/MacOS/NotifMover $(BUNDLE_DIR)/Contents/MacOS/NotifMover-x86_64 $(BUNDLE_DIR)/Contents/MacOS/NotifMover-arm64
+	@rm $(BUNDLE_DIR)/Contents/MacOS/NotifMover-x86_64 $(BUNDLE_DIR)/Contents/MacOS/NotifMover-arm64
 	codesign -fvs - $(BUNDLE_DIR)
 
 install: build
