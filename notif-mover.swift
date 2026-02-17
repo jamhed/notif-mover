@@ -74,22 +74,31 @@ func moveNotifications() {
         AXUIElementCopyAttributeValue(win, kAXSubroleAttribute as CFString, &subroleRef)
         guard (subroleRef as? String) == "AXSystemDialog" else { continue }
 
-        guard let listItems = findElementByID(root: win, identifier: "AXNotificationListItems"),
-              let listSize = getSize(of: listItems) else { continue }
+        // Find notification container: either AXNotificationListItems or a direct alert
+        let alertSubroles = ["AXNotificationCenterAlertStack", "AXNotificationCenterBannerStack",
+                              "AXNotificationCenterBanner", "AXNotificationCenterAlert"]
 
-        // Skip if no visible notifications
-        guard listSize.height > 0 else { continue }
+        let container: AXUIElement
+        if let listItems = findElementByID(root: win, identifier: "AXNotificationListItems") {
+            container = listItems
+        } else if let alert = findElement(root: win, targetSubroles: alertSubroles) {
+            container = alert
+        } else {
+            continue
+        }
 
-        // Cache the list Y offset (only reset window when we don't have it yet)
+        guard let containerSize = getSize(of: container), containerSize.height > 0 else { continue }
+
+        // Cache the container Y offset (only reset window when we don't have it yet)
         if cachedListY == nil {
             setPosition(win, x: 0, y: 0)
             usleep(50_000)
-            guard let listPos = getPosition(of: listItems) else { continue }
-            cachedListY = listPos.y
+            guard let containerPos = getPosition(of: container) else { continue }
+            cachedListY = containerPos.y
         }
 
         let dockHeight = screen.visibleFrame.origin.y
-        let targetY = screen.frame.height - cachedListY! - listSize.height - dockHeight - 80
+        let targetY = screen.frame.height - cachedListY! - containerSize.height - dockHeight - 80
 
         // Only move if not already at target (prevents blink during interaction)
         if let winPos = getPosition(of: win), abs(winPos.y - targetY) > 5 {
