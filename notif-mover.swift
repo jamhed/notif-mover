@@ -60,22 +60,31 @@ func moveNotifications() {
         AXUIElementCopyAttributeValue(win, kAXSubroleAttribute as CFString, &subroleRef)
         guard (subroleRef as? String) == "AXSystemDialog" else { continue }
 
+        // Reset window to origin to get true notification offset
+        setPosition(win, x: 0, y: 0)
+        usleep(50_000) // 50ms for layout to settle
+
         guard let notif = findElement(root: win, targetSubroles: alertSubroles),
               let notifPos = getPosition(of: notif),
               let notifSize = getSize(of: notif) else { continue }
 
-        let targetY = screen.frame.height - notifPos.y - notifSize.height - 50
-        if let winPos = getPosition(of: win), abs(winPos.y - targetY) > 5 {
-            setPosition(win, x: 0, y: targetY)
-        }
+        let dockHeight = screen.visibleFrame.origin.y
+        let targetY = screen.frame.height - notifPos.y - notifSize.height - dockHeight - 10
+        setPosition(win, x: 0, y: targetY)
     }
 }
 
 func observerCallback(observer: AXObserver, element: AXUIElement, notification: CFString, context: UnsafeMutableRawPointer?) {
     moveNotifications()
+    // Retry after short delays — macOS may reposition the notification after layout events
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { moveNotifications() }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { moveNotifications() }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { moveNotifications() }
 }
 
 // Setup
+let app = NSApplication.shared
+
 guard AXIsProcessTrusted() else {
     print("Error: accessibility permission required")
     exit(1)
@@ -86,14 +95,25 @@ guard let ncApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundl
     exit(1)
 }
 
+// Menu bar icon
+let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+if let button = statusItem.button {
+    button.title = "\u{25BC}"  // ▼ down arrow
+}
+let menu = NSMenu()
+menu.addItem(NSMenuItem(title: "NotifMover — bottom-right", action: nil, keyEquivalent: ""))
+menu.addItem(NSMenuItem.separator())
+menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+statusItem.menu = menu
+
+// AX observer
 let pid = ncApp.processIdentifier
-let app = AXUIElementCreateApplication(pid)
+let axApp = AXUIElementCreateApplication(pid)
 var observer: AXObserver?
 AXObserverCreate(pid, observerCallback, &observer)
-AXObserverAddNotification(observer!, app, kAXLayoutChangedNotification as CFString, nil)
-AXObserverAddNotification(observer!, app, kAXWindowCreatedNotification as CFString, nil)
+AXObserverAddNotification(observer!, axApp, kAXLayoutChangedNotification as CFString, nil)
+AXObserverAddNotification(observer!, axApp, kAXWindowCreatedNotification as CFString, nil)
 CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(observer!), .defaultMode)
 
-print("notif-mover: running (notifications → bottom-right)")
 moveNotifications()
-CFRunLoopRun()
+app.run()
