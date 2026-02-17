@@ -1,6 +1,6 @@
 cask "notif-mover" do
-  version "1.4.0"
-  sha256 "af48973497c01e8625442aadc74d01c7409a61d5d6a36c8f0af5d2c5033875d3"
+  version "1.4.1"
+  sha256 "b99987dafd9b45fd02dc1963967f88b732404a0ce91e5de13ef40ef442b4bbe6"
 
   url "https://github.com/jamhed/notif-mover/releases/download/v#{version}/NotifMover.app.tar.gz"
   name "NotifMover"
