@@ -3,7 +3,6 @@ import Cocoa
 
 let ncBundleID = "com.apple.notificationcenterui"
 var cachedListY: CGFloat?       // notification list Y offset within the window (at origin)
-var debounceItem: DispatchWorkItem?
 
 func findElement(root: AXUIElement, targetSubroles: [String]) -> AXUIElement? {
     var subroleRef: AnyObject?
@@ -99,11 +98,17 @@ func moveNotifications() {
     }
 }
 
+var debounceItem: DispatchWorkItem?
+
 func observerCallback(observer: AXObserver, element: AXUIElement, notification: CFString, context: UnsafeMutableRawPointer?) {
     debounceItem?.cancel()
-    let item = DispatchWorkItem { moveNotifications() }
+    let item = DispatchWorkItem {
+        moveNotifications()
+        // Retry once to catch late renders
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { moveNotifications() }
+    }
     debounceItem = item
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: item)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: item)
 }
 
 // Setup
