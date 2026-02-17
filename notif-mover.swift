@@ -2,6 +2,10 @@ import ApplicationServices
 import Cocoa
 
 let ncBundleID = "com.apple.notificationcenterui"
+var cachedListY: CGFloat?       // notification list Y offset within the window (at origin)
+var lastListHeight: CGFloat = 0 // track stack height changes
+var debounceItem: DispatchWorkItem?
+var lastChildCount: Int = 0     // track notification count changes
 
 func findElement(root: AXUIElement, targetSubroles: [String]) -> AXUIElement? {
     var subroleRef: AnyObject?
@@ -14,6 +18,22 @@ func findElement(root: AXUIElement, targetSubroles: [String]) -> AXUIElement? {
        let children = childrenRef as? [AXUIElement] {
         for child in children {
             if let found = findElement(root: child, targetSubroles: targetSubroles) { return found }
+        }
+    }
+    return nil
+}
+
+func findElementByID(root: AXUIElement, identifier: String) -> AXUIElement? {
+    var idRef: AnyObject?
+    if AXUIElementCopyAttributeValue(root, kAXIdentifierAttribute as CFString, &idRef) == .success,
+       let id = idRef as? String, id == identifier {
+        return root
+    }
+    var childrenRef: AnyObject?
+    if AXUIElementCopyAttributeValue(root, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+       let children = childrenRef as? [AXUIElement] {
+        for child in children {
+            if let found = findElementByID(root: child, identifier: identifier) { return found }
         }
     }
     return nil
@@ -52,34 +72,63 @@ func moveNotifications() {
 
     guard let screen = NSScreen.main else { return }
 
-    let alertSubroles = ["AXNotificationCenterAlertStack", "AXNotificationCenterBannerStack",
-                          "AXNotificationCenterBanner", "AXNotificationCenterAlert"]
+    for win in windows {
+        var subroleRef: AnyObject?
+        AXUIElementCopyAttributeValue(win, kAXSubroleAttribute as CFString, &subroleRef)
+        guard (subroleRef as? String) == "AXSystemDialog" else { continue }
+
+        guard let listItems = findElementByID(root: win, identifier: "AXNotificationListItems"),
+              let listSize = getSize(of: listItems) else { continue }
+
+        // Skip if no visible notifications
+        guard listSize.height > 0 else { continue }
+
+        // Cache the list Y offset on first run (window at origin)
+        if cachedListY == nil || listSize.height != lastListHeight {
+            setPosition(win, x: 0, y: 0)
+            usleep(50_000)
+            guard let listPos = getPosition(of: listItems) else { continue }
+            cachedListY = listPos.y
+            lastListHeight = listSize.height
+        }
+
+        let dockHeight = screen.visibleFrame.origin.y
+        let targetY = screen.frame.height - cachedListY! - listSize.height - dockHeight - 80
+        setPosition(win, x: 0, y: targetY)
+    }
+}
+
+func getChildCount(of element: AXUIElement) -> Int {
+    var childrenRef: AnyObject?
+    guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+          let children = childrenRef as? [AXUIElement] else { return 0 }
+    return children.count
+}
+
+func observerCallback(observer: AXObserver, element: AXUIElement, notification: CFString, context: UnsafeMutableRawPointer?) {
+    // Only move when notification count changes (new notification or dismissal)
+    guard let ncApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == ncBundleID }) else { return }
+    let axApp = AXUIElementCreateApplication(ncApp.processIdentifier)
+    var windowsRef: AnyObject?
+    guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+          let windows = windowsRef as? [AXUIElement] else { return }
 
     for win in windows {
         var subroleRef: AnyObject?
         AXUIElementCopyAttributeValue(win, kAXSubroleAttribute as CFString, &subroleRef)
         guard (subroleRef as? String) == "AXSystemDialog" else { continue }
 
-        // Reset window to origin to get true notification offset
-        setPosition(win, x: 0, y: 0)
-        usleep(50_000) // 50ms for layout to settle
+        guard let listItems = findElementByID(root: win, identifier: "AXNotificationListItems") else { continue }
+        let count = getChildCount(of: listItems)
 
-        guard let notif = findElement(root: win, targetSubroles: alertSubroles),
-              let notifPos = getPosition(of: notif),
-              let notifSize = getSize(of: notif) else { continue }
-
-        let dockHeight = screen.visibleFrame.origin.y
-        let targetY = screen.frame.height - notifPos.y - notifSize.height - dockHeight - 10
-        setPosition(win, x: 0, y: targetY)
+        if count != lastChildCount {
+            lastChildCount = count
+            debounceItem?.cancel()
+            let item = DispatchWorkItem { moveNotifications() }
+            debounceItem = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: item)
+        }
     }
-}
-
-func observerCallback(observer: AXObserver, element: AXUIElement, notification: CFString, context: UnsafeMutableRawPointer?) {
-    moveNotifications()
-    // Retry after short delays — macOS may reposition the notification after layout events
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { moveNotifications() }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { moveNotifications() }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { moveNotifications() }
 }
 
 // Setup
