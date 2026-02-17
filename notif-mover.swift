@@ -3,9 +3,7 @@ import Cocoa
 
 let ncBundleID = "com.apple.notificationcenterui"
 var cachedListY: CGFloat?       // notification list Y offset within the window (at origin)
-var lastListHeight: CGFloat = 0 // track stack height changes
 var debounceItem: DispatchWorkItem?
-var lastChildCount: Int = 0     // track notification count changes
 
 func findElement(root: AXUIElement, targetSubroles: [String]) -> AXUIElement? {
     var subroleRef: AnyObject?
@@ -83,52 +81,29 @@ func moveNotifications() {
         // Skip if no visible notifications
         guard listSize.height > 0 else { continue }
 
-        // Cache the list Y offset on first run (window at origin)
-        if cachedListY == nil || listSize.height != lastListHeight {
+        // Cache the list Y offset (only reset window when we don't have it yet)
+        if cachedListY == nil {
             setPosition(win, x: 0, y: 0)
             usleep(50_000)
             guard let listPos = getPosition(of: listItems) else { continue }
             cachedListY = listPos.y
-            lastListHeight = listSize.height
         }
 
         let dockHeight = screen.visibleFrame.origin.y
         let targetY = screen.frame.height - cachedListY! - listSize.height - dockHeight - 80
-        setPosition(win, x: 0, y: targetY)
-    }
-}
 
-func getChildCount(of element: AXUIElement) -> Int {
-    var childrenRef: AnyObject?
-    guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
-          let children = childrenRef as? [AXUIElement] else { return 0 }
-    return children.count
+        // Only move if not already at target (prevents blink during interaction)
+        if let winPos = getPosition(of: win), abs(winPos.y - targetY) > 5 {
+            setPosition(win, x: 0, y: targetY)
+        }
+    }
 }
 
 func observerCallback(observer: AXObserver, element: AXUIElement, notification: CFString, context: UnsafeMutableRawPointer?) {
-    // Only move when notification count changes (new notification or dismissal)
-    guard let ncApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == ncBundleID }) else { return }
-    let axApp = AXUIElementCreateApplication(ncApp.processIdentifier)
-    var windowsRef: AnyObject?
-    guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-          let windows = windowsRef as? [AXUIElement] else { return }
-
-    for win in windows {
-        var subroleRef: AnyObject?
-        AXUIElementCopyAttributeValue(win, kAXSubroleAttribute as CFString, &subroleRef)
-        guard (subroleRef as? String) == "AXSystemDialog" else { continue }
-
-        guard let listItems = findElementByID(root: win, identifier: "AXNotificationListItems") else { continue }
-        let count = getChildCount(of: listItems)
-
-        if count != lastChildCount {
-            lastChildCount = count
-            debounceItem?.cancel()
-            let item = DispatchWorkItem { moveNotifications() }
-            debounceItem = item
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: item)
-        }
-    }
+    debounceItem?.cancel()
+    let item = DispatchWorkItem { moveNotifications() }
+    debounceItem = item
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: item)
 }
 
 // Setup
