@@ -147,7 +147,12 @@ guard let ncApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundl
 // Menu bar icon
 let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 if let button = statusItem.button {
-    button.title = "\u{25BC}"  // ▼ down arrow
+    if let img = NSImage(systemSymbolName: "bell.and.waves.left.and.right", accessibilityDescription: "NotifMover") {
+        img.isTemplate = true
+        button.image = img
+    } else {
+        button.title = "NM"
+    }
 }
 let menu = NSMenu()
 menu.addItem(NSMenuItem(title: "NotifMover — bottom-right", action: nil, keyEquivalent: ""))
