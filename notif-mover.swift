@@ -98,17 +98,11 @@ func moveNotifications() {
     }
 }
 
-var debounceItem: DispatchWorkItem?
-
 func observerCallback(observer: AXObserver, element: AXUIElement, notification: CFString, context: UnsafeMutableRawPointer?) {
-    debounceItem?.cancel()
-    let item = DispatchWorkItem {
-        moveNotifications()
-        // Retry once to catch late renders
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { moveNotifications() }
+    moveNotifications()
+    for delay in [0.05, 0.1, 0.2, 0.4] {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { moveNotifications() }
     }
-    debounceItem = item
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: item)
 }
 
 // Setup
@@ -150,4 +144,10 @@ AXObserverAddNotification(observer!, axApp, kAXWindowCreatedNotification as CFSt
 CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(observer!), .defaultMode)
 
 moveNotifications()
+
+// Polling fallback — observer can miss the first notification after idle
+Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+    moveNotifications()
+}
+
 app.run()
